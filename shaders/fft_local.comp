@@ -1,0 +1,21 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+#include "common.glsl"
+layout(constant_id=1) const uint TILE=512;
+shared vec2 data[TILE];
+void main() {
+    uint t=gl_LocalInvocationID.x, base=gl_WorkGroupID.x*TILE;
+    for(uint i=t;i<TILE;i+=gl_WorkGroupSize.x) data[i]=a[base+i];
+    barrier();
+    for(uint size=2;size<=TILE;size*=2) {
+        uint halfsize=size/2;
+        for(uint b=t;b<TILE/2;b+=gl_WorkGroupSize.x) {
+            uint shift=uint(findMSB(size));
+            uint j=b&(halfsize-1),i=((b>>(shift-1))<<shift)+j;
+            precise vec2 u=data[i],v=multiply(data[i+halfsize],twiddle(size,j));
+            data[i]=u+v; data[i+halfsize]=u-v;
+        }
+        barrier();
+    }
+    for(uint i=t;i<TILE;i+=gl_WorkGroupSize.x) a[base+i]=data[i];
+}

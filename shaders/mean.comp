@@ -1,0 +1,15 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+#include "common.glsl"
+shared float sums[256];
+void main() {
+    uint t=gl_LocalInvocationID.x;
+    float value=0;
+    uint groups=(p.steps+gl_WorkGroupSize.x-1)/gl_WorkGroupSize.x;
+    for(uint i=t;i<groups;i+=gl_WorkGroupSize.x) value+=partial[i];
+    sums[t]=value;
+    for(uint k=t+gl_WorkGroupSize.x;k<256;k+=gl_WorkGroupSize.x) sums[k]=0;
+    barrier();
+    for(uint d=128;d>0;d>>=1) { if(t<d) sums[t]+=sums[t+d]; barrier(); }
+    if(t==0) partial[0]=sums[0]/float(p.steps);
+}

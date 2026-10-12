@@ -1,0 +1,54 @@
+# Local CodeGraph index and credentials
+/.codegraph/
+/.aws/
+
+# CMake build directories and accidental in-source build outputs
+/build/
+/build-*/
+/cmake-build-*/
+/CMakeFiles/
+/CMakeCache.txt
+/cmake_install.cmake
+/CTestTestfile.cmake
+/DartConfiguration.tcl
+/Testing/
+/Makefile
+/build.ninja
+/.ninja_deps
+/.ninja_log
+/compile_commands.json
+/CMakeUserPresets.json
+/install_manifest.txt
+/brp_bench
+/brp_reference_tests
+
+# Compiled shaders and native artifacts
+*.spv
+*.o
+*.obj
+*.a
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exe
+
+# Python caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Editor and disposable files
+*~
+*.swp
+*.swo
+*.tmp
+.DS_Store
+
+# Measured results, validation logs and provenance are project deliverables.
+!/results/
+!/results/**

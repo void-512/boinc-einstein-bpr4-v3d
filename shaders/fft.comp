@@ -1,0 +1,10 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+#include "common.glsl"
+void main() {
+    uint b=gl_GlobalInvocationID.x; if(b>=p.n/2) return;
+    uint shift=uint(findMSB(p.stage));
+    uint halfsize=p.stage>>1,j=b&(halfsize-1),i=((b>>(shift-1))<<shift)+j;
+    precise vec2 u=a[i],v=multiply(a[i+halfsize],twiddle(p.stage,j));
+    a[i]=u+v; a[i+halfsize]=u-v;
+}

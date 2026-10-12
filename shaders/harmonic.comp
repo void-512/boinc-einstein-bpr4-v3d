@@ -1,0 +1,36 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+#include "common.glsl"
+// Each output cell owns its full rounding interval, eliminating global max atomics.
+float sum_at(uint i,uint level) {
+    precise float s=power[i];
+    if(level>=1) s+=power[(i*8+8)>>4];
+    if(level>=2) s+=power[(i*12+8)>>4]+power[(i*4+8)>>4];
+    if(level>=3) s+=power[(i*14+8)>>4]+power[(i*10+8)>>4]+power[(i*6+8)>>4]+power[(i*2+8)>>4];
+    if(level>=4) s+=power[(i*15+8)>>4]+power[(i*13+8)>>4]+power[(i*11+8)>>4]+power[(i*9+8)>>4]+
+        power[(i*7+8)>>4]+power[(i*5+8)>>4]+power[(i*3+8)>>4]+power[(i+8)>>4];
+    return s;
+}
+void main() {
+    uint j=gl_GlobalInvocationID.x,h=gl_WorkGroupID.y;
+    if(j>=p.fundamental) return;
+    float value=0;
+    if(h==0) value=power[j];
+    else {
+        int width=1<<h;
+        int begin=max(int(p.window),int(j)*width-width/2);
+        int end=min(int(p.harmonic),int(j)*width+width/2);
+        if(begin<end) {
+            float first=sum_at(uint(begin),h),best=first;
+            for(int i=begin+1;i<end;++i) best=max(best,sum_at(uint(i),h));
+            // Match the CPU's first-value storage when no trial exceeds threshold.
+            value=best>p.threshold[h]?best:first;
+        }
+    }
+    power[p.n/2+h*p.fundamental+j]=value;
+    if(j>=p.window && value>p.threshold[h]) {
+        uint slot=atomicAdd(count,1);
+        if(slot<p.capacity) candidates[slot]=uvec4(j,h,floatBitsToUint(value),0);
+        else atomicOr(overflow,1);
+    }
+}

@@ -1,0 +1,15 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+#include "common.glsl"
+void main() {
+    uint b=gl_GlobalInvocationID.x; if(b>=p.n/2) return;
+    uint size=p.stage&0x7fffffffu;
+    uint shift=uint(findMSB(size)),halfsize=size>>1;
+    uint j=b&(halfsize-1),i=((b>>(shift-1))<<shift)+j;
+    bool alternate=(p.stage&0x80000000u)!=0;
+    precise vec2 u=alternate?scratch[b]:a[b];
+    precise vec2 x=alternate?scratch[b+p.n/2]:a[b+p.n/2];
+    precise vec2 v=multiply(x,twiddle(size,j));
+    if(alternate) {a[i]=u+v;a[i+halfsize]=u-v;}
+    else {scratch[i]=u+v;scratch[i+halfsize]=u-v;}
+}
