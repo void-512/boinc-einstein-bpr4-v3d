@@ -26,21 +26,38 @@ float lut_sin(float x) {
     d2*=0.5f*d;
     return sinSamples[i]+d*cosSamples[i]-d2*sinSamples[i];
 }
-static float offset(uint32_t i, const Params& p) {
+static float fused_sin(float phase) {
+    float whole;float xt=std::modf((1.0f/6.283185f)*phase,&whole);if(xt<0) xt+=1;
+    int i=int(std::fma(xt,64.0f,0.5f));
+    float d=6.283185f*std::fma(-float(i),1.0f/64,xt);
+    float d2=(0.5f*d)*d;
+    return std::fma(-d2,sinSamples[i],std::fma(d,cosSamples[i],sinSamples[i]));
+}
+float sample_offset(uint32_t i, const Params& p) {
     float t=float(i)*p.dt;
+    if(p.flags&2) return std::fma(p.tau*fused_sin(std::fma(p.omega,t,p.psi)),p.step_inv,-p.s0);
     return p.tau*lut_sin(p.omega*t+p.psi)*p.step_inv-p.s0;
 }
+void resampling_steps(Params& p) {
+    p.steps=p.unpadded-1;
+    while(p.steps && float(p.steps)-sample_offset(p.steps,p)>=float(p.unpadded-1)) --p.steps;
+    if(!p.steps) throw std::runtime_error("template produces empty series");
+}
 Params parameters(uint32_t n,uint32_t unpadded,float tau,float period,float psi,float dt) {
-    if(!std::has_single_bit(n)||n<64||n>(1u<<23)||unpadded<32||unpadded>n||dt<=0||period<=0||tau<0 ||
+    uint32_t radix=std::has_single_bit(n)?1:((n%3==0&&std::has_single_bit(n/3))?3:0);
+    if(!radix||n<64||n>3*(1u<<22)||unpadded<32||unpadded>n||dt<=0||period<=0||tau<0 ||
        !std::isfinite(tau+period+psi+dt)) throw std::runtime_error("invalid observation/template");
     Params p{};
-    p.n=n; p.unpadded=unpadded; p.logn=std::countr_zero(n); p.tau=tau;
+    p.n=n; p.unpadded=unpadded; p.fft_n=n; p.fft_radix=radix; p.fft_base=n/radix;
+    p.logn=std::countr_zero(p.fft_base); p.tau=tau;
     p.omega=2.0*std::numbers::pi/period; p.psi=psi; p.dt=dt; p.step_inv=1.0f/dt;
     // Historical main computes S0 with double sin, unlike the LUT in the resampler.
     p.s0=tau*std::sin(double(psi))*p.step_inv;
-    p.steps=unpadded-1;
-    while(p.steps && float(p.steps)-offset(p.steps,p)>=float(unpadded-1)) --p.steps;
-    if(!p.steps) throw std::runtime_error("template produces empty series");
+    if(!std::isfinite(p.omega)||!std::isfinite(p.step_inv)||!std::isfinite(p.s0)||
+       !std::isfinite(p.tau*p.step_inv)||!std::isfinite(float(unpadded)*p.dt)||
+       !std::isfinite(p.omega*(float(unpadded)*p.dt)+p.psi))
+        throw std::runtime_error("template exceeds finite FP32 arithmetic domain");
+    resampling_steps(p);
     p.harmonic=n/2; p.fundamental=n/2; p.window=8;
     const float thresholds[]={20,30,45,70,110};
     std::copy_n(thresholds,5,p.threshold); p.capacity=65536;
@@ -60,7 +77,7 @@ std::vector<float> resample(std::span<const float> input,const Params& p) {
     std::vector<float> out(p.n); float sum=0;
     for(uint32_t i=0;i<p.steps;++i) {
         // The +0.5 is a double literal in the supplied CPU source.
-        int j=int(double(float(i)-offset(i,p))+0.5);
+        int j=int(double(float(i)-sample_offset(i,p))+0.5);
         if(j<0 || uint32_t(j)>=p.unpadded) throw std::runtime_error("resample index outside observation");
         sum+=out[i]=input[j];
     }
@@ -97,7 +114,7 @@ Reference reference(std::span<const float> input,const Params& p) {
     Reference r; r.resampled=resample(input,p); r.fft=fft_reference(r.resampled); r.power.resize(p.n/2);
     for(uint32_t i=1;i<p.n/2;++i) {
         double re=r.fft[i].real(),im=r.fft[i].imag();
-        r.power[i]=float((re*re+im*im)/p.n);
+        r.power[i]=float(double(1.0f/p.n)*(re*re+im*im));
     }
     r.summed=harmonic_reference(r.power,p); r.candidates=select(r.summed,p); return r;
 }

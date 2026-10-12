@@ -1,0 +1,13 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+#include "common.glsl"
+void main() {
+    uint j=invocation(),h=gl_WorkGroupID.y;
+    if(j>=p.fundamental||j<p.window) return;
+    float value=power[p.n/2+h*p.fundamental+j];
+    if(value>p.threshold[h]) {
+        uint slot=atomicAdd(count,1);
+        if(slot<p.capacity) write_candidate(slot,uvec4(j,h,floatBitsToUint(value),0));
+        else atomicOr(overflow,1);
+    }
+}

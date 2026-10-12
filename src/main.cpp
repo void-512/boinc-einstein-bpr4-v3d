@@ -12,13 +12,20 @@ static void require(bool b,const char* s) {if(!b) throw std::runtime_error(s);}
 int main(int argc,char** argv) try {
     uint32_t n=65536,unpadded=0,wg=192,tile=512,batch=4,reps=9,seed=42;
     float tau=0.002,period=120,psi=0.3,dt=0.000256,threshold_scale=1;
-    bool software=false,stockham=false,radix4=false;
+    bool software=false,stockham=false,radix4=false,packed=false,scatter=false,production=false,radix8=false,counters=false,fused_power=false,radix8_store=false;
     for(int i=1;i<argc;++i) {
         std::string key=argv[i];
-        if(key=="--help") {std::cout<<"brp_bench [--n power-of-two] [--unpadded N] [--wg 16..256] [--tile 0|64..4096] [--stockham --tile 0] [--radix4] [--batch 1..64] [--reps N] [--seed N] [--tau seconds] [--period seconds] [--psi radians] [--dt seconds] [--threshold-scale factor] [--allow-software]\n";return 0;}
+        if(key=="--help") {std::cout<<"brp_bench [--n 2^k|3*2^k] [--unpadded N] [--wg 16..256] [--tile 0|64..4096] [--stockham --tile 0] [--radix4|--radix8] [--packed] [--scatter] [--production] [--fused-power] [--counters --batch 1] [--batch 1..64] [--reps N] [--seed N] [--tau seconds] [--period seconds] [--psi radians] [--dt seconds] [--threshold-scale factor] [--allow-software]\n";return 0;}
         if(key=="--allow-software") {software=true;continue;}
         if(key=="--stockham") {stockham=true;continue;}
         if(key=="--radix4") {radix4=true;continue;}
+        if(key=="--packed") {packed=true;continue;}
+        if(key=="--scatter") {scatter=true;continue;}
+        if(key=="--production") {production=true;continue;}
+        if(key=="--radix8") {radix8=true;continue;}
+        if(key=="--counters") {counters=true;continue;}
+        if(key=="--fused-power") {fused_power=true;continue;}
+        if(key=="--radix8-store") {radix8_store=true;radix8=true;continue;}
         require(i+1<argc,"option needs value");std::string v=argv[++i];
         if(key=="--n") n=std::stoul(v);else if(key=="--unpadded") unpadded=std::stoul(v);
         else if(key=="--wg") wg=std::stoul(v);else if(key=="--tile") tile=std::stoul(v);
@@ -31,15 +38,17 @@ int main(int argc,char** argv) try {
     require(reps>0&&reps<=10000 && std::isfinite(threshold_scale)&&threshold_scale>=0,"invalid repetitions/thresholds");
     if(!unpadded) unpadded=n-17;
     auto p=brp::parameters(n,unpadded,tau,period,psi,dt);
+    if(production) {p.flags=2|4;p.s0=(p.tau*std::sin(p.psi))*p.step_inv;brp::resampling_steps(p);}
     for(auto& t:p.threshold) t*=threshold_scale;
     auto input=brp::synthetic(unpadded,dt,seed);
     auto ref_start=std::chrono::steady_clock::now();auto ref=brp::reference(input,p);
     double reference_ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-ref_start).count();
-    require(ref.resampled==brp::historical_resample(input,p),"reference resampling differs from historical source");
+    if(!production) require(ref.resampled==brp::historical_resample(input,p),"reference resampling differs from historical source");
     require(ref.power==brp::historical_power(ref.resampled,p),"power oracle differs from historical source");
-    auto cpu_baseline=brp::benchmark_cpu(input,p,5);
+    brp::CPUStats cpu_baseline{};
+    if(!production) cpu_baseline=brp::benchmark_cpu(input,p,5);
     auto init_start=std::chrono::steady_clock::now();
-    brp::GPU gpu(p,input,wg,tile,batch,software,stockham,radix4);
+    brp::GPU gpu(p,input,wg,tile,batch,software,stockham,radix4,packed,scatter,radix8,fused_power,radix8_store);
     double init_ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-init_start).count();
     gpu.run();gpu.run(); // untimed warmup; persistent command buffers and pipelines
     auto actual=gpu.snapshot();
@@ -83,14 +92,17 @@ int main(int argc,char** argv) try {
         if(a.bin!=b.bin||a.level!=b.level||a.power!=b.power) reproducible=false;
     }
     valid=valid&&reproducible;
+    std::string counter_json=counters?gpu.profile_counters():"null";
     rusage usage{};getrusage(RUSAGE_SELF,&usage);
     std::cout<<std::setprecision(10)<<"{\n  \"device\": \""<<gpu.device_info()<<"\",\n"
         <<"  \"n\": "<<n<<", \"unpadded\": "<<unpadded<<", \"steps\": "<<p.steps<<", \"seed\": "<<seed<<",\n"
         <<"  \"tau\": "<<tau<<", \"period\": "<<period<<", \"psi\": "<<psi<<", \"dt\": "<<dt<<", \"threshold_scale\": "<<threshold_scale<<",\n"
         <<"  \"wg\": "<<wg<<", \"tile\": "<<tile<<", \"batch\": "<<batch<<", \"reps\": "<<reps<<",\n"
-        <<"  \"stockham\": "<<(stockham?"true":"false")<<",\n"
+        <<"  \"stockham\": "<<(stockham?"true":"false")<<", \"packed\": "<<(packed?"true":"false")<<", \"scatter\": "<<(scatter?"true":"false")<<", \"production\": "<<(production?"true":"false")<<",\n"
+        <<"  \"fused_power\": "<<(fused_power?"true":"false")<<",\n"
+        <<"  \"radix8_store\": "<<(radix8_store?"true":"false")<<",\n"
         <<"  \"twiddle_layout\": \""<<(BRP_STRIDED_TWIDDLES?"strided":"dense")<<"\",\n"
-        <<"  \"radix4\": "<<(radix4?"true":"false")<<", \"submission_ms_median\": "<<median(submit_ms)<<",\n"
+        <<"  \"radix4\": "<<(radix4?"true":"false")<<", \"radix8\": "<<(radix8?"true":"false")<<", \"submission_ms_median\": "<<median(submit_ms)<<",\n"
         <<"  \"valid\": "<<(valid?"true":"false")<<", \"index_mismatches\": "<<index_mismatches<<", \"candidate_mismatches\": "<<candidate_mismatches<<", \"rank_mismatches\": "<<rank_mismatches<<",\n"
         <<"  \"replay_reproducible\": "<<(reproducible?"true":"false")<<",\n"
         <<"  \"resample_l2\": "<<resamp_error<<", \"fft_l2\": "<<fft_error<<", \"power_l2\": "<<power_error<<", \"harmonic_l2\": "<<hs_error<<", \"harmonic_isolated_l2\": "<<hs_isolated_error<<",\n"
@@ -101,6 +113,6 @@ int main(int argc,char** argv) try {
         <<"  \"replays_per_second\": "<<1000/median(wall)<<", \"allocated_gpu_bytes\": "<<gpu.allocated_bytes()<<", \"peak_rss_kib\": "<<usage.ru_maxrss<<",\n"
         <<"  \"stage_ms_median\": {\"resample\": "<<median(stages[0])<<", \"fft\": "<<median(stages[1])<<", \"power\": "<<median(stages[2])<<", \"harmonic_candidate\": "<<median(stages[3])<<"},\n  \"wall_ms_samples\": [";
     for(size_t i=0;i<wall.size();++i) std::cout<<(i?", ":"")<<wall[i];
-    std::cout<<"]\n}\n";
+    std::cout<<"],\n  \"hardware_counters\": "<<counter_json<<"\n}\n";
     return valid?0:2;
 } catch(const std::exception& e) {std::cerr<<"brp_bench: "<<e.what()<<'\n';return 1;}

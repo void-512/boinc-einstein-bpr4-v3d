@@ -1,0 +1,38 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+#include "common.glsl"
+struct Four {vec2 x0,x1,x2,x3;};
+Four first_four(vec2 x0,vec2 x1,vec2 x2,vec2 x3,uint size,uint j) {
+    precise vec2 w1=twiddle(size>>2,j),w2=twiddle(size>>1,j);
+    precise vec2 v1=multiply(x1,w1),v3=multiply(x3,w1);
+    precise vec2 u0=x0+v1,u1=x0-v1,u2=x2+v3,u3=x2-v3;
+    precise vec2 v0=multiply(u2,w2),v2=multiply(u3,twiddle(size>>1,j+(size>>3)));
+    precise vec2 y0=u0+v0,y1=u1+v2,y2=u0-v0,y3=u1-v2;
+    return Four(y0,y1,y2,y3);
+}
+void main() {
+    uint b=invocation();if(b>=p.fft_n/8) return;
+    uint base=(b>>(p.logn-3))*p.fft_base;
+    b&=p.fft_base/8-1;
+    uint size=p.stage&0x7fffffffu,shift=uint(findMSB(size));
+    uint eighth=size>>3,j=b&(eighth-1),i=((b>>(shift-3))<<shift)+j+base;
+    b+=base;
+    bool alternate=(p.stage&0x80000000u)!=0;
+    Four lo=first_four(alternate?scratch[b]:a[b],alternate?scratch[b+p.fft_base/2]:a[b+p.fft_base/2],
+                       alternate?scratch[b+p.fft_base/4]:a[b+p.fft_base/4],alternate?scratch[b+3*p.fft_base/4]:a[b+3*p.fft_base/4],size,j);
+    Four hi=first_four(alternate?scratch[b+p.fft_base/8]:a[b+p.fft_base/8],alternate?scratch[b+5*p.fft_base/8]:a[b+5*p.fft_base/8],
+                       alternate?scratch[b+3*p.fft_base/8]:a[b+3*p.fft_base/8],alternate?scratch[b+7*p.fft_base/8]:a[b+7*p.fft_base/8],size,j);
+    // Store each plus/minus pair as soon as its final twiddle is consumed.
+    // This avoids keeping eight final complex outputs live simultaneously.
+    if(alternate) {
+        vec2 v0=multiply(hi.x0,twiddle(size,j));a[i]=lo.x0+v0;a[i+4*eighth]=lo.x0-v0;
+        vec2 v1=multiply(hi.x1,twiddle(size,j+eighth));a[i+eighth]=lo.x1+v1;a[i+5*eighth]=lo.x1-v1;
+        vec2 v2=multiply(hi.x2,twiddle(size,j+2*eighth));a[i+2*eighth]=lo.x2+v2;a[i+6*eighth]=lo.x2-v2;
+        vec2 v3=multiply(hi.x3,twiddle(size,j+3*eighth));a[i+3*eighth]=lo.x3+v3;a[i+7*eighth]=lo.x3-v3;
+    } else {
+        vec2 v0=multiply(hi.x0,twiddle(size,j));scratch[i]=lo.x0+v0;scratch[i+4*eighth]=lo.x0-v0;
+        vec2 v1=multiply(hi.x1,twiddle(size,j+eighth));scratch[i+eighth]=lo.x1+v1;scratch[i+5*eighth]=lo.x1-v1;
+        vec2 v2=multiply(hi.x2,twiddle(size,j+2*eighth));scratch[i+2*eighth]=lo.x2+v2;scratch[i+6*eighth]=lo.x2-v2;
+        vec2 v3=multiply(hi.x3,twiddle(size,j+3*eighth));scratch[i+3*eighth]=lo.x3+v3;scratch[i+7*eighth]=lo.x3-v3;
+    }
+}

@@ -2,9 +2,12 @@
 #extension GL_GOOGLE_include_directive : require
 #include "common.glsl"
 void main() {
-    uint i=gl_GlobalInvocationID.x; if(i>=p.n) return;
-    float v=i<p.steps?raw[i]:partial[0];
-    raw[i]=v;
-    uint source=(p.stage&0x80000000u)!=0?i:(bitfieldReverse(i)>>(32-p.logn));
-    a[i]=vec2(source<p.steps?raw[source]:partial[0],0);
+    uint i=invocation(); if(i>=p.fft_n) return;
+    uint block=i>>p.logn,j=i&(p.fft_base-1);
+    if((p.stage&0x80000000u)==0) j=bitfieldReverse(j)>>(32-p.logn);
+    uint source=j*p.fft_radix+block;
+    if((p.flags&1)!=0) {
+        source*=2;
+        a[i]=vec2(source<p.steps?raw[source]:partial[0],source+1<p.steps?raw[source+1]:partial[0]);
+    } else a[i]=vec2(source<p.steps?raw[source]:partial[0],0);
 }

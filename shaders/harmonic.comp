@@ -12,7 +12,7 @@ float sum_at(uint i,uint level) {
     return s;
 }
 void main() {
-    uint j=gl_GlobalInvocationID.x,h=gl_WorkGroupID.y;
+    uint j=invocation(),h=gl_WorkGroupID.y;
     if(j>=p.fundamental) return;
     float value=0;
     if(h==0) value=power[j];
@@ -30,7 +30,7 @@ void main() {
     power[p.n/2+h*p.fundamental+j]=value;
     if(j>=p.window && value>p.threshold[h]) {
         uint slot=atomicAdd(count,1);
-        if(slot<p.capacity) candidates[slot]=uvec4(j,h,floatBitsToUint(value),0);
+        if(slot<p.capacity) write_candidate(slot,uvec4(j,h,floatBitsToUint(value),0));
         else atomicOr(overflow,1);
     }
 }

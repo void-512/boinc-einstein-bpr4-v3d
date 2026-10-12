@@ -11,8 +11,10 @@ struct Params {
     uint32_t fundamental, harmonic, window, stage;
     float threshold[5];
     uint32_t capacity;
+    uint32_t fft_n, fft_base, fft_radix, flags, twiddle3, twiddle_real;
+    uint32_t result_slot;
 };
-static_assert(sizeof(Params)==80);
+static_assert(sizeof(Params)==108);
 struct Candidate { uint32_t bin, level; float power; uint32_t reserved; };
 struct Reference {
     std::vector<float> resampled, power, summed;
@@ -20,6 +22,8 @@ struct Reference {
     std::vector<Candidate> candidates;
 };
 float lut_sin(float phase);
+float sample_offset(uint32_t i,const Params&);
+void resampling_steps(Params&);
 Params parameters(uint32_t n, uint32_t unpadded, float tau, float period, float psi, float dt);
 std::vector<float> synthetic(uint32_t n, float dt, uint32_t seed=42);
 std::vector<float> resample(std::span<const float> input, const Params& p);

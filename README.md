@@ -2,9 +2,14 @@
 
 This C++20/Vulkan 1.3 project implements and measures orbital resampling, mean
 padding, FFTs, normalized power spectra, 1/2/4/8/16-harmonic search, and candidate
-compaction. It validates against the supplied historical Einstein@Home source
-and FFTW. It is an experimental computational core, with synthetic inputs;
-production BRP4 compatibility has **not** been demonstrated.
+compaction. It also decodes authentic BRP4 DD files, performs whitening and RFI
+replacement, searches distinct orbital templates, and ranks a bank-wide toplist.
+Validation uses isolated copies of the distributed BRP4 v1.61 application,
+three real telescope observations, FFTW, and the historical scientific source.
+See [real-workload validation](docs/real_workunit_validation.md) and
+[V3D optimization](docs/v3d_optimization.md) for evidence and supported limits.
+This remains an offline research application; experimental results are never
+submitted to Einstein@Home.
 
 The reference repository is read only. Its CPU harmonic summing, resampling and
 LUT utilities and FFT/power routine are compiled directly into the validation library. Small header
@@ -75,11 +80,46 @@ commands, exit codes, timestamps, temperature, GPU clock and throttle flags.
 Exit status 2 means numerical/detection validation failed; status 1 means a
 runtime/overflow/input failure. Neither is a valid scientific result.
 
-`--batch` replays the **same template** multiple times in one reusable command
-buffer; only the final replay's output survives. These are template-equivalent
-kernel throughput experiments, not multiple distinct templates or complete work
-units. They measure submission amortization, but production batching still needs
-independent candidate retention and evolving search thresholds.
+`brp_bench --batch` replays the same synthetic template and retains a separate
+candidate slot for each execution. `brp_workunit --batch` instead processes
+distinct bank templates, preserves each template's candidates, and updates the
+bank-wide toplist. A batch uses conservative thresholds from its beginning;
+extra candidates are filtered against the current toplist before retention.
+
+## Offline real-workload tests
+
+The optional `brp_workunit` target requires GSL headers/libraries and zlib.
+Point `GSL_ROOT_DIR` and `CMAKE_LIBRARY_PATH` at an extracted GSL package when
+avoiding system installation. The isolated corpus and its provenance are in
+`datasets/brp4-v161/manifest.json`. Test outputs must use fresh directories.
+
+```bash
+python3 -B tools/exclusive_gpu.py --timeout 21600 -- \
+  python3 -B tools/real_run.py \
+  --executable "$HOME/.cache/codex-tmp/brp-v3d-final/brp_workunit" \
+  --packed --scatter --radix8-store --fused-power --batch 8 --unit 0 \
+  --output results/my-new-offline-test
+```
+
+This command searches the complete downloaded bank in an isolated RAM-backed
+working directory. It does not contact BOINC. If GSL was extracted rather than
+installed, supply its library directory through `LD_LIBRARY_PATH`.
+Intermediate validation uses `--validate --batch 1` and authentic captures;
+see the validation report for reproducible commands. `--counters` adds a
+separate hardware-counter submission after the scientific search.
+
+The selected WG256 configuration combines packed mixed-radix Stockham FFTs,
+radix-8 fusion with paired stores, fused power, and scatter harmonic search.
+The final controlled real-template comparison measured 263.397 ms/template,
+3.797 templates/GPU second, and 1.818× the full-complex Vulkan baseline.
+See the optimization report for full-bank rates, independent scientific
+comparisons, thermal conditions, and rejected alternatives.
+The final full-bank test sustained 3.820 templates/GPU second across all 6,662
+distinct templates and matched the authentic application's 100 final candidate
+bins, orbital parameters, harmonics, and rankings.
+
+Einstein production remains suspended and new work is disabled, as requested.
+The test harness preserves the named AP27 task's existing stopped state.
 
 ## Reproduce the corrected baseline and final suite
 
@@ -115,14 +155,15 @@ The strided sweep is a separate experiment: build with
 
 Final synthetic replay medians with WG256/Stockham/radix-4/dense twiddles were
 3.278 ms at N=65,536 and 52.474 ms at N=1,048,576, with batch 8. This is 3.17×
-and 7.71× faster than the corrected GPU baseline, respectively. CPU reference
-times were about 2.16 and 47.54 ms, so GPU throughput has not overtaken the CPU.
+and 7.71× faster than the corrected GPU baseline, respectively.
 See [measured records](results/summary.md) and [the report](docs/research.md).
 
 For optional API validation, `tools/api_validation.py EXECUTABLE LAYER_ROOT`
 runs both FFT paths with a Khronos validation layer extracted under `LAYER_ROOT`
 (Debian arm64 layout), verifies that it loaded, and retains the diagnostics.
-Run it through `tools/exclusive_gpu.py`. Layer timings are diagnostic only.
+Run it through `tools/exclusive_gpu.py`, with `--phase2 --output-dir` pointing to
+a fresh results directory to include packed mixed-radix production arithmetic.
+Layer timings are diagnostic only.
 
 See [the research report](docs/research.md) for source analysis, measured findings,
 precision limitations, and remaining work. Results under `results/` are durable

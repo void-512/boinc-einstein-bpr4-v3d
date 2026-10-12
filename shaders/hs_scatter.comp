@@ -1,0 +1,16 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+#define BRP_ATOMIC_POWER
+#include "common.glsl"
+#define READ_POWER(index) uintBitsToFloat(power_bits[index])
+#include "hs_sum.glsl"
+void main() {
+    uint i=invocation()+p.window;
+    if(i>=p.harmonic) return;
+    vec4 sums=dyadic_sums(i);
+    for(uint h=1;h<=4;++h) {
+        uint j=(i+(1u<<(h-1)))>>h;
+        if(j<p.fundamental&&sums[h-1]>p.threshold[h])
+            atomicMax(power_bits[p.n/2+h*p.fundamental+j],floatBitsToUint(sums[h-1]));
+    }
+}

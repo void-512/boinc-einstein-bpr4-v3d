@@ -4,16 +4,19 @@
 layout(constant_id=2) const bool AUTOSORT=false;
 // Two radix-2 stages, with their addition order retained, in one memory pass.
 void main() {
-    uint b=gl_GlobalInvocationID.x; if(b>=p.n/4) return;
+    uint b=invocation(); if(b>=p.fft_n/4) return;
+    uint base=(b>>(p.logn-2))*p.fft_base;
+    b&=p.fft_base/4-1;
     uint size=p.stage&0x7fffffffu,shift=uint(findMSB(size));
     uint quarter=size>>2,j=b&(quarter-1),i=((b>>(shift-2))<<shift)+j;
     bool alternate=(p.stage&0x80000000u)!=0;
+    i+=base;b+=base;
     precise vec2 x0,x1,x2,x3;
     if(AUTOSORT) {
         x0=alternate?scratch[b]:a[b];
-        x1=alternate?scratch[b+p.n/2]:a[b+p.n/2];
-        x2=alternate?scratch[b+p.n/4]:a[b+p.n/4];
-        x3=alternate?scratch[b+3*p.n/4]:a[b+3*p.n/4];
+        x1=alternate?scratch[b+p.fft_base/2]:a[b+p.fft_base/2];
+        x2=alternate?scratch[b+p.fft_base/4]:a[b+p.fft_base/4];
+        x3=alternate?scratch[b+3*p.fft_base/4]:a[b+3*p.fft_base/4];
     } else { x0=a[i];x1=a[i+quarter];x2=a[i+2*quarter];x3=a[i+3*quarter]; }
     precise vec2 w1=twiddle(size>>1,j),w2=twiddle(size,j);
     precise vec2 v1=multiply(x1,w1),v3=multiply(x3,w1);

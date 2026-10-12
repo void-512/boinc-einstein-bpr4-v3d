@@ -1,0 +1,18 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+#include "common.glsl"
+#define READ_POWER(index) power[index]
+#include "hs_sum.glsl"
+void main() {
+    uint j=invocation(),h=gl_WorkGroupID.y;
+    if(j>=p.fundamental) return;
+    float value=0;
+    if(h==0) value=power[j];
+    else {
+        int width=1<<h;
+        int begin=max(int(p.window),int(j)*width-width/2);
+        int end=min(int(p.harmonic),int(j)*width+width/2);
+        if(begin<end) value=dyadic_sums(uint(begin))[h-1];
+    }
+    power[p.n/2+h*p.fundamental+j]=value;
+}

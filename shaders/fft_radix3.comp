@@ -1,0 +1,15 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+#include "common.glsl"
+vec2 read_fft(uint i) { return (p.stage&0x80000000u)!=0?scratch[i]:a[i]; }
+void write_fft(uint i,vec2 x) { if((p.stage&0x80000000u)!=0) a[i]=x; else scratch[i]=x; }
+void main() {
+    uint k=invocation();if(k>=p.fft_base) return;
+    precise vec2 x=read_fft(k);
+    precise vec2 y=multiply(read_fft(k+p.fft_base),tw[p.twiddle3+k]);
+    precise vec2 z=multiply(read_fft(k+2*p.fft_base),tw[p.twiddle3+2*k]);
+    precise vec2 sum=y+z,diff=y-z;
+    precise vec2 center=x-0.5*sum;
+    precise vec2 turn=vec2(diff.y,-diff.x)*0.8660254037844386;
+    write_fft(k,x+sum);write_fft(k+p.fft_base,center+turn);write_fft(k+2*p.fft_base,center-turn);
+}

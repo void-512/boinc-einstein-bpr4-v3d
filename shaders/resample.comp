@@ -1,14 +1,16 @@
 #version 450
 #extension GL_GOOGLE_include_directive : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+#extension GL_KHR_shader_subgroup_basic : require
 #include "common.glsl"
 shared float sums[256];
 void main() {
-    uint i=gl_GlobalInvocationID.x, t=gl_LocalInvocationID.x;
+    uint i=invocation(), t=gl_LocalInvocationID.x;
     float value=0;
     if(i<p.steps) {
         precise float time=float(i)*p.dt;
-        precise float phase=p.omega*time+p.psi;
-        precise float offset=p.tau*sine(phase)*p.step_inv-p.s0;
+        precise float phase=(ARITHMETIC&2)!=0?fused_madd(p.omega,time,p.psi):p.omega*time+p.psi;
+        precise float offset=(ARITHMETIC&2)!=0?fused_madd(p.tau*sine(phase),p.step_inv,-p.s0):p.tau*sine(phase)*p.step_inv-p.s0;
         precise float index=float(i)-offset;
         // Addition of 0.5 in FP32 can round up before truncation for large indices.
         // floor(index) + test fractional part matches the CPU's double addition.
@@ -17,9 +19,11 @@ void main() {
         else value=input_data[j];
         raw[i]=value;
     }
-    sums[t]=value;
-    for(uint k=t+gl_WorkGroupSize.x;k<256;k+=gl_WorkGroupSize.x) sums[k]=0;
+    float subtotal=subgroupAdd(value);
+    if(subgroupElect()) sums[gl_SubgroupID]=subtotal;
     barrier();
-    for(uint d=128;d>0;d>>=1) { if(t<d) sums[t]+=sums[t+d]; barrier(); }
-    if(t==0) partial[gl_WorkGroupID.x]=sums[0];
+    if(gl_SubgroupID==0) {
+        float total=subgroupAdd(t<gl_NumSubgroups?sums[t]:0);
+        if(subgroupElect() && group_index()<(p.steps+gl_WorkGroupSize.x-1)/gl_WorkGroupSize.x) partial[group_index()]=total;
+    }
 }

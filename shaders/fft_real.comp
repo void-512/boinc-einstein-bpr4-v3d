@@ -1,0 +1,14 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+#include "common.glsl"
+vec2 read_fft(uint i) { return (p.stage&0x80000000u)!=0?scratch[i]:a[i]; }
+void main() {
+    uint k=invocation();if(k>p.n/2) return;
+    uint q=k==p.n/2?0:k,reverse=q==0?0:p.n/2-q;
+    precise vec2 x=read_fft(q),y=read_fft(reverse);y.y=-y.y;
+    precise vec2 sum=x+y,diff=x-y;
+    precise vec2 product=multiply(diff,tw[p.twiddle_real+k]);
+    precise vec2 result=0.5*(sum+vec2(product.y,-product.x));
+    if((p.stage&0x80000000u)!=0) a[k]=result;else scratch[k]=result;
+    if(FUSION!=0 && k<p.n/2) power[k]=k==0?0:(result.x*result.x+result.y*result.y)/float(p.n);
+}
